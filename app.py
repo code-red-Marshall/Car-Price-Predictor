@@ -1,15 +1,12 @@
 import pandas as pd 
 import numpy as np 
 import pickle as pk 
-from sklearn.preprocessing import OneHotEncoder
-from sklearn.linear_model import LinearRegression
-from sklearn.compose import make_column_transformer
-from sklearn.pipeline import make_pipeline
 import streamlit as st
 
 model = pk.load(open('LRModel.pkl','rb'))
 
-st.header('Car Price Dekho')
+st.image('Car price dekho.png', use_column_width=True)
+st.header('Enter Details : ')
 
 cars = pd.read_csv('Cleaned_Car_data.csv')
 
