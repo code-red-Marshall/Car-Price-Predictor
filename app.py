@@ -1,65 +1,106 @@
-import pandas as pd 
-import numpy as np 
-import pickle as pk 
+import pandas as pd
+import numpy as np
 import streamlit as st
 
-model = pk.load(open('LRModel.pkl','rb'))
+# ---- Load model (joblib preferred) ----
+try:
+    import joblib
+    _USE_JOBLIB = True
+except Exception:
+    import pickle as pk
+    _USE_JOBLIB = False
 
-st.image('Car price dekho.png', use_column_width=True)
-st.header('Enter Details : ')
+def load_model(path: str):
+    try:
+        if _USE_JOBLIB:
+            return joblib.load(path)
+        else:
+            with open(path, "rb") as f:
+                return pk.load(f)
+    except Exception as e:
+        st.error(
+            "Failed to load the model file 'LRModel.pkl'.\n\n"
+            "This usually happens when the library versions on this server "
+            "don’t match the ones used to train the model. Make sure your "
+            "requirements.txt pins the exact versions you trained with.\n\n"
+            f"Underlying error: {type(e).__name__}: {e}"
+        )
+        st.stop()
 
-cars = pd.read_csv('Cleaned_Car_data.csv')
+model = load_model("LRModel.pkl")
 
+# ---- UI ----
+st.image("Car price dekho.png", use_column_width=True)
+st.header("Enter Details : ")
 
+cars = pd.read_csv("Cleaned_Car_data.csv")
 
-car_brands = sorted(cars['company'].unique())
-placeholder_brand = ""
-car_brands.insert(0, placeholder_brand)
+# Brands
+brands = sorted(cars["company"].dropna().unique().tolist())
+company = st.selectbox("Select Car Brand", [""] + brands)
 
-company = st.selectbox('Select Car Brand', car_brands)
+# Models filtered by brand
+if company:
+    models = sorted(cars.loc[cars["company"] == company, "name"].dropna().unique().tolist())
+else:
+    models = sorted(cars["name"].dropna().unique().tolist())
+name = st.selectbox("Select Car Model", [""] + models)
 
+# Year & kms
+year = st.text_input("Year", placeholder="Enter the manufacturing year (e.g., 2017)")
+kms_driven = st.text_input("Kilometers Travelled", placeholder="Enter kilometers (e.g., 45000)")
 
-# Initialize selected model as empty initially
-selected_model = ""
+# Fuel
+fuel_types = sorted(cars["fuel_type"].dropna().unique().tolist())
+fuel = st.selectbox("Fuel type", [""] + fuel_types)
 
-# Display select box for car models
-selected_brand_models = cars['name'].tolist()
-selected_brand_models.insert(0, "")  # Insert blank option
-
-# Filter car models based on selected brand
-if company != placeholder_brand:
-    selected_brand_models = cars[cars['company'] == company]['name'].tolist()
-    selected_brand_models.insert(0, "")  # Insert blank option
-
-# Display select box for car models related to the selected brand
-name = st.selectbox('Select Car Model', selected_brand_models)
-
-year = st.text_input('Year', placeholder='Enter the manufacturing year')
-kms_driven = st.text_input('Kilometers Travelled', placeholder='Enter the kilometers travelled (Eg: 45000)')
-
-# Get unique fuel types and sort them
-fuel_types = sorted(cars['fuel_type'].unique())
-
-# Display select box for fuel types with a placeholder
-fuel_placeholder = ""
-fuel = st.selectbox('Fuel type', [fuel_placeholder] + fuel_types)
-
-# Handle selection of placeholder
-if fuel == fuel_placeholder:
-    fuel = None
-
-# Remove placeholder if it's selected
-if fuel == fuel_placeholder:
-    fuel = None
+# ---- Predict ----
+def _to_int(x):
+    if x is None or str(x).strip() == "":
+        return None
+    # remove commas/spaces
+    x = str(x).replace(",", "").strip()
+    return int(x)
 
 if st.button("Predict"):
+    # Validate selections
+    missing = []
+    if not company: missing.append("Brand")
+    if not name: missing.append("Model")
+    if not fuel: missing.append("Fuel type")
 
-    input_data_model = pd.DataFrame(
-    [[company,name, year, kms_driven, fuel]],
-    columns=['company','name','year','kms_driven','fuel_type'])
-    #Predict car price
-    car_price = model.predict(input_data_model)
+    year_int = None
+    kms_int = None
+    try:
+        year_int = _to_int(year)
+    except Exception:
+        st.error("Year must be an integer (e.g., 2017).")
+        st.stop()
+    try:
+        kms_int = _to_int(kms_driven)
+    except Exception:
+        st.error("Kilometers must be an integer (e.g., 45000).")
+        st.stop()
 
-    #Display prediction result
-    st.success('Predicted Car Price: ₹ {:.2f}'.format(car_price[0]))
+    if missing:
+        st.warning("Please select: " + ", ".join(missing))
+        st.stop()
+    if year_int is None or kms_int is None:
+        st.warning("Please enter valid numbers for Year and Kilometers.")
+        st.stop()
 
+    # Build input row
+    input_row = pd.DataFrame(
+        [[company, name, year_int, kms_int, fuel]],
+        columns=["company", "name", "year", "kms_driven", "fuel_type"],
+    )
+
+    try:
+        pred = model.predict(input_row)
+        st.success("Predicted Car Price: ₹ {:.2f}".format(float(np.ravel(pred)[0])))
+    except Exception as e:
+        st.error(
+            "Prediction failed. This can happen if the model expects preprocessing "
+            "steps (encoders/scalers) that aren’t present in the saved pipeline.\n\n"
+            f"Underlying error: {type(e).__name__}: {e}"
+        )
