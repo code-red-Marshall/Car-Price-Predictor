@@ -1,31 +1,30 @@
-import pandas as pd
-import numpy as np
+# ----------------- sklearn pickle compatibility shim -----------------
+# MUST be at the very top (before loading the model).
 import streamlit as st
 
-# ---- Load model (joblib preferred) ----
-try:
-    import joblib
-    _USE_JOBLIB = True
-except Exception:
-    import pickle as pk
-    _USE_JOBLIB = False
-
-import streamlit as st
-
-# --- add this block very top of app.py, before load_model() is called ---
 try:
     import sklearn.compose._column_transformer as _ct_mod
     if not hasattr(_ct_mod, "_RemainderColsList"):
         class _RemainderColsList(list):
-            """Compatibility shim for older pickles."""
+            """Compatibility shim for older scikit-learn pickles."""
             pass
         _ct_mod._RemainderColsList = _RemainderColsList
 except Exception as _e:
-    # If anything goes wrong, just show it; won't affect correct versions.
+    # Not fatal; just informative if the module layout changes again.
     st.write("Compat shim not applied:", _e)
-# -----------------------------------------------------------------------
+# ---------------------------------------------------------------------
 
+import pandas as pd
+import numpy as np
+import pickle as pk  # keep pickle available even if joblib import fails
+try:
+    import joblib
+    _USE_JOBLIB = True
+except Exception:
+    _USE_JOBLIB = False
 
+# ---- Load model (joblib preferred; graceful errors) ----
+@st.cache_resource
 def load_model(path: str):
     try:
         if _USE_JOBLIB:
@@ -37,8 +36,8 @@ def load_model(path: str):
         st.error(
             "Failed to load the model file 'LRModel.pkl'.\n\n"
             "This usually happens when the library versions on this server "
-            "don’t match the ones used to train the model. Make sure your "
-            "requirements.txt pins the exact versions you trained with.\n\n"
+            "don’t match the ones used to train the model. Pin exact versions "
+            "in requirements.txt, or re-save the model with joblib.\n\n"
             f"Underlying error: {type(e).__name__}: {e}"
         )
         st.stop()
@@ -74,9 +73,8 @@ fuel = st.selectbox("Fuel type", [""] + fuel_types)
 def _to_int(x):
     if x is None or str(x).strip() == "":
         return None
-    # remove commas/spaces
-    x = str(x).replace(",", "").strip()
-    return int(x)
+    s = str(x).replace(",", "").strip()
+    return int(s)
 
 if st.button("Predict"):
     # Validate selections
@@ -85,17 +83,11 @@ if st.button("Predict"):
     if not name: missing.append("Model")
     if not fuel: missing.append("Fuel type")
 
-    year_int = None
-    kms_int = None
     try:
         year_int = _to_int(year)
-    except Exception:
-        st.error("Year must be an integer (e.g., 2017).")
-        st.stop()
-    try:
         kms_int = _to_int(kms_driven)
     except Exception:
-        st.error("Kilometers must be an integer (e.g., 45000).")
+        st.error("Year and Kilometers must be integers (e.g., 2017 and 45000).")
         st.stop()
 
     if missing:
@@ -106,18 +98,17 @@ if st.button("Predict"):
         st.stop()
 
     # Build input row
-    input_row = pd.DataFrame(
+    X = pd.DataFrame(
         [[company, name, year_int, kms_int, fuel]],
         columns=["company", "name", "year", "kms_driven", "fuel_type"],
     )
 
     try:
-        pred = model.predict(input_row)
+        pred = model.predict(X)
         st.success("Predicted Car Price: ₹ {:.2f}".format(float(np.ravel(pred)[0])))
     except Exception as e:
         st.error(
-            "Prediction failed. This can happen if the model expects preprocessing "
-            "steps (encoders/scalers) that aren’t present in the saved pipeline.\n\n"
+            "Prediction failed. If your model expects preprocessing "
+            "(encoders/scalers), ensure those steps are inside the saved Pipeline.\n\n"
             f"Underlying error: {type(e).__name__}: {e}"
         )
-
