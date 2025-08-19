@@ -10,6 +10,22 @@ except Exception:
     import pickle as pk
     _USE_JOBLIB = False
 
+import streamlit as st
+
+# --- add this block very top of app.py, before load_model() is called ---
+try:
+    import sklearn.compose._column_transformer as _ct_mod
+    if not hasattr(_ct_mod, "_RemainderColsList"):
+        class _RemainderColsList(list):
+            """Compatibility shim for older pickles."""
+            pass
+        _ct_mod._RemainderColsList = _RemainderColsList
+except Exception as _e:
+    # If anything goes wrong, just show it; won't affect correct versions.
+    st.write("Compat shim not applied:", _e)
+# -----------------------------------------------------------------------
+
+
 def load_model(path: str):
     try:
         if _USE_JOBLIB:
@@ -104,3 +120,4 @@ if st.button("Predict"):
             "steps (encoders/scalers) that aren’t present in the saved pipeline.\n\n"
             f"Underlying error: {type(e).__name__}: {e}"
         )
+
