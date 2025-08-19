@@ -10,7 +10,6 @@ try:
             pass
         _ct_mod._RemainderColsList = _RemainderColsList
 except Exception as _e:
-    # Not fatal; just informative if the module layout changes again.
     st.write("Compat shim not applied:", _e)
 # ---------------------------------------------------------------------
 
@@ -23,15 +22,22 @@ try:
 except Exception:
     _USE_JOBLIB = False
 
+from sklearn.pipeline import Pipeline
+from sklearn.compose import ColumnTransformer
+import sklearn
+
+st.caption(f"scikit-learn running in app: **{sklearn.__version__}**")
+
 # ---- Load model (joblib preferred; graceful errors) ----
 @st.cache_resource
 def load_model(path: str):
     try:
         if _USE_JOBLIB:
-            return joblib.load(path)
+            model = joblib.load(path)
         else:
             with open(path, "rb") as f:
-                return pk.load(f)
+                model = pk.load(f)
+        return model
     except Exception as e:
         st.error(
             "Failed to load the model file 'LRModel.pkl'.\n\n"
@@ -42,7 +48,31 @@ def load_model(path: str):
         )
         st.stop()
 
+def _patch_column_transformer_attributes(model):
+    """
+    Patch older-fitted ColumnTransformers so they work on newer sklearn.
+    Safe when remainder='drop' (no passthrough columns), which is what your pipeline uses.
+    """
+    try:
+        def patch_ct(ct: ColumnTransformer):
+            # Only patch when attribute is missing; newer versions already have it
+            if not hasattr(ct, "_name_to_fitted_passthrough"):
+                # If you used remainder='drop' (your pipeline does), an empty dict is valid.
+                ct._name_to_fitted_passthrough = {}
+        # Pipeline
+        if isinstance(model, Pipeline):
+            for step_name, step in model.named_steps.items():
+                if isinstance(step, ColumnTransformer):
+                    patch_ct(step)
+        # Direct ColumnTransformer
+        if isinstance(model, ColumnTransformer):
+            patch_ct(model)
+    except Exception as e:
+        st.write("ColumnTransformer compat patch failed:", e)
+
 model = load_model("LRModel.pkl")
+# apply compat patch after loading
+ _patch_column_transformer_attributes(model)
 
 # ---- UI ----
 st.image("Car price dekho.png", use_column_width=True)
@@ -109,6 +139,6 @@ if st.button("Predict"):
     except Exception as e:
         st.error(
             "Prediction failed. If your model expects preprocessing "
-            "(encoders/scalers), ensure those steps are inside the saved Pipeline.\n\n"
-            f"Underlying error: {type(e).__name__}: {e}"
+            "(encoders/scalers), ensure those steps are inside the saved Pipeline."
         )
+        st.exception(e)
