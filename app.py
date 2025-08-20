@@ -57,11 +57,11 @@ def _patch_column_transformer_attributes(model):
         def patch_ct(ct: ColumnTransformer):
             # Only patch when attribute is missing; newer versions already have it
             if not hasattr(ct, "_name_to_fitted_passthrough"):
-                # If you used remainder='drop' (your pipeline does), an empty dict is valid.
+                # If remainder='drop', an empty dict is valid.
                 ct._name_to_fitted_passthrough = {}
         # Pipeline
         if isinstance(model, Pipeline):
-            for step_name, step in model.named_steps.items():
+            for _, step in model.named_steps.items():
                 if isinstance(step, ColumnTransformer):
                     patch_ct(step)
         # Direct ColumnTransformer
@@ -72,7 +72,7 @@ def _patch_column_transformer_attributes(model):
 
 model = load_model("LRModel.pkl")
 # apply compat patch after loading
- _patch_column_transformer_attributes(model)
+_patch_column_transformer_attributes(model)   # <-- fixed: no leading space
 
 # ---- UI ----
 st.image("Car price dekho.png", use_column_width=True)
@@ -86,7 +86,9 @@ company = st.selectbox("Select Car Brand", [""] + brands)
 
 # Models filtered by brand
 if company:
-    models = sorted(cars.loc[cars["company"] == company, "name"].dropna().unique().tolist())
+    models = sorted(
+        cars.loc[cars["company"] == company, "name"].dropna().unique().tolist()
+    )
 else:
     models = sorted(cars["name"].dropna().unique().tolist())
 name = st.selectbox("Select Car Model", [""] + models)
